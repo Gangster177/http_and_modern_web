@@ -1,4 +1,6 @@
-package homework;
+package lecture;
+
+import homework.Server;
 
 import java.io.*;
 import java.net.ServerSocket;
@@ -9,7 +11,19 @@ import java.util.List;
 
 public class Main {
     public static void main(String[] args) {
-        final var validPaths = List.of("/index.html", "/spring.svg", "/spring.png", "/resources.html", "/styles.css", "/app.js", "/links.html", "/forms.html", "/classic.html", "/events.html", "/events.js");
+
+        final var validPaths = List.of(
+                "/index.html",
+                "/spring.svg",
+                "/spring.png",
+                "/resources.html",
+                "/styles.css",
+                "/app.js",
+                "/links.html",
+                "/forms.html",
+                "/classic.html",
+                "/events.html",
+                "/events.js");
 
         try (final var serverSocket = new ServerSocket(9999)) {
             while (true) {
@@ -24,7 +38,13 @@ public class Main {
                     final var parts = requestLine.split(" ");
 
                     if (parts.length != 3) {
-                        // just close socket
+                        out.write((
+                                "HTTP/1.1 400 Bad Request\r\n" +
+                                        "Content-Length: 0\r\n" +
+                                        "Connection: close\r\n" +
+                                        "\r\n"
+                        ).getBytes());
+                        out.flush();
                         continue;
                     }
 
@@ -40,13 +60,13 @@ public class Main {
                         continue;
                     }
 
-                    final var filePath = Path.of(".", "public", path);
-                    final var mimeType = Files.probeContentType(filePath);
+                    final Path filePath = Path.of(".", "public","resources", path);
+                    final String mimeType = Files.probeContentType(filePath);  // выводим расширение файла по указанному пути
 
                     // special case for classic
                     if (path.equals("/classic.html")) {
-                        final var template = Files.readString(filePath);
-                        final var content = template.replace(
+                        final String template = Files.readString(filePath);
+                        final byte[] content = template.replace(  // заменяем шаблон "{time}" на наше значение
                                 "{time}",
                                 LocalDateTime.now().toString()
                         ).getBytes();
@@ -69,8 +89,8 @@ public class Main {
                                     "Content-Length: " + length + "\r\n" +
                                     "Connection: close\r\n" +
                                     "\r\n"
-                    ).getBytes());
-                    Files.copy(filePath, out);
+                    ).getBytes());  // начальная часть запроса отправляется в выходной поток
+                    Files.copy(filePath, out);  // копируем файл по байтам в выходной поток
                     out.flush();
                 }
             }
