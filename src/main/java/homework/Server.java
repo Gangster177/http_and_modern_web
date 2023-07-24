@@ -16,7 +16,6 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.logging.Handler;
 
 public class Server {
     private final List<String> validPaths = List.of("/index.html",
@@ -65,22 +64,28 @@ public class Server {
             }
 
             Request request = new Request(parts);
+            Map<String, Handler> handlerMap = handlers.get(request.getMethod());
 
-            if (!validPaths.contains(request.getPath())) {
-                badRequest(out);
-                return;
+            if (handlers.containsKey(request.getPath())) {
+                Handler handler = handlerMap.get(request.getPath());
+                handler.handle(request, out);
+            } else {
+                if (!validPaths.contains(request.getPath())) {
+                    badRequest(out);
+                } else {
+                    response(out, request.getPath());
+                }
             }
-            response(out,request);
 
         } catch (
                 IOException e) {
-           // e.printStackTrace();
+            // e.printStackTrace();
         }
     }
 
-    void badRequest(BufferedOutputStream out) throws IOException {
+    private void badRequest(BufferedOutputStream out) throws IOException {
         out.write((
-                "HTTP/1.1 400 Bad Request\r\n" +
+                "HTTP/1.1 404 Not Found\r\n" +
                         "Content-Length: 0\r\n" +
                         "Connection: close\r\n" +
                         "\r\n"
@@ -88,28 +93,11 @@ public class Server {
         out.flush();
     }
 
-    void response(BufferedOutputStream out, Request request) throws IOException {
-        final Path filePath = Path.of(".", "public", "resources", request.getPath());
+    private void response(BufferedOutputStream out, String path) throws IOException {
+        final Path filePath = Path.of(".", "public", "resources", path);
         final String mimeType = Files.probeContentType(filePath);
 
         // special case for classic
-        if (request.getPath().equals("/classic.html")) {
-            final String template = Files.readString(filePath);
-            final byte[] content = template.replace(
-                    "{time}",
-                    LocalDateTime.now().toString()
-            ).getBytes();
-            out.write((
-                    "HTTP/1.1 200 OK\r\n" +
-                            "Content-Type: " + mimeType + "\r\n" +
-                            "Content-Length: " + content.length + "\r\n" +
-                            "Connection: close\r\n" +
-                            "\r\n"
-            ).getBytes());
-            out.write(content);
-            out.flush();
-            return;
-        }
 
         final long length = Files.size(filePath);
         out.write((
@@ -129,5 +117,4 @@ public class Server {
         }
         handlers.get(method).put(path, handler);
     }
-
 }

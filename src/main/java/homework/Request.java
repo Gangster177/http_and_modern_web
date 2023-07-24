@@ -1,5 +1,4 @@
 package homework;
-// TODO тело запроса, если есть.
 public class Request {
     private final String method;
     private final String path;
