@@ -1,16 +1,15 @@
 package homework;
 
+import org.apache.http.NameValuePair;
+import org.apache.http.client.utils.URLEncodedUtils;
+
+import java.io.*;
 import java.net.Socket;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.LocalDateTime;
-import java.util.HashMap;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 
-import java.io.BufferedOutputStream;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,20 +17,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class Server {
-    private final List<String> validPaths = List.of("/index.html",
-            "/spring.svg",
-            "/spring.png",
-            "/resources.html",
-            "/styles.css",
-            "/app.js",
-            "/links.html",
-            "/forms.html",
-            "/classic.html",
-            "/events.html",
-            "/events.js");
     private final ExecutorService es;
     private static Socket socket;
-    private final ConcurrentHashMap<String, Map<String, Handler>> handlers;
+    private final ConcurrentHashMap<String, ConcurrentHashMap<String, Handler>> handlers;
+    final List<String> allowedMethods = List.of("GET", "POST");
 
     public Server(int poolSize) {
         this.es = Executors.newFixedThreadPool(poolSize);
@@ -53,37 +42,59 @@ public class Server {
 
     private void newConnect(Socket socket) {
         try (
-                final BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                final BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream())
-        ) {
-            final String requestLine = in.readLine();
-            final String[] parts = requestLine.split(" ");
+                final var in = new BufferedInputStream(socket.getInputStream());
+                final var out = new BufferedOutputStream(socket.getOutputStream());) {
+            // лимит на request line + заголовки
+            final var limit = 4096;
+            in.mark(limit); // устанавливаем максимальную отметку
+            final var buffer = new byte[limit];
+            final var read = in.read(buffer);
 
-            if (parts.length != 3) {
+            // ищем request line
+            final var requestLineDelimiter = new byte[]{'\r', '\n'};
+            final var requestLineEnd = indexOf(buffer, requestLineDelimiter, 0, read);
+            if (requestLineEnd == -1) {
+                badRequest(out);
                 return;
             }
 
-            Request request = new Request(parts);
+            // читаем request line
+            final var requestLine = new String(Arrays.copyOf(buffer, requestLineEnd)).split(" ");
+            if (requestLine.length != 3) {
+                badRequest(out);
+                return;
+            }
+
+            final var method = requestLine[0];
+            if (!allowedMethods.contains(method)) {
+                badRequest(out);
+                return;
+            }
+
+            final var path = requestLine[1];
+            if (!path.startsWith("/")) {
+                badRequest(out);
+                return;
+            }
+
+            List<NameValuePair> params = URLEncodedUtils.parse(URI.create(requestLine[1]), StandardCharsets.UTF_8);
+
+            Request request = new Request(method, path, params);
             Map<String, Handler> handlerMap = handlers.get(request.getMethod());
 
-            if (handlers.containsKey(request.getPath())) {
+            if (handlerMap != null && handlerMap.containsKey(request.getPath())) {
                 Handler handler = handlerMap.get(request.getPath());
                 handler.handle(request, out);
             } else {
-                if (!validPaths.contains(request.getPath())) {
-                    badRequest(out);
-                } else {
-                    response(out, request.getPath());
-                }
+                notFound(out);
             }
-
         } catch (
                 IOException e) {
-            // e.printStackTrace();
+            System.out.println(e.getMessage());
         }
     }
 
-    private void badRequest(BufferedOutputStream out) throws IOException {
+    private void notFound(BufferedOutputStream out) throws IOException {
         out.write((
                 "HTTP/1.1 404 Not Found\r\n" +
                         "Content-Length: 0\r\n" +
@@ -93,27 +104,33 @@ public class Server {
         out.flush();
     }
 
-    private void response(BufferedOutputStream out, String path) throws IOException {
-        final Path filePath = Path.of(".", "public", "resources", path);
-        final String mimeType = Files.probeContentType(filePath);
-
-        // special case for classic
-
-        final long length = Files.size(filePath);
+    private void badRequest(BufferedOutputStream out) throws IOException {
         out.write((
-                "HTTP/1.1 200 OK\r\n" +
-                        "Content-Type: " + mimeType + "\r\n" +
-                        "Content-Length: " + length + "\r\n" +
+                "HTTP/1.1 400 Bad request\r\n" +
+                        "Content-Length: 0\r\n" +
                         "Connection: close\r\n" +
                         "\r\n"
-        ).getBytes()); // начальная часть запроса отправляется в выходной поток
-        Files.copy(filePath, out); // копируем файл по байтам в выходной поток
+        ).getBytes());
         out.flush();
     }
 
+    // from google guava with modifications
+    private static int indexOf(byte[] array, byte[] target, int start, int max) {
+        outer:
+        for (int i = start; i < max - target.length + 1; i++) {
+            for (int j = 0; j < target.length; j++) {
+                if (array[i + j] != target[j]) {
+                    continue outer;
+                }
+            }
+            return i;
+        }
+        return -1;
+    }
+
     public void addHandler(String method, String path, Handler handler) {
-        if (!handlers.contains(method)) {
-            handlers.put(method, new HashMap<>());
+        if (!handlers.containsKey(method)) {
+            handlers.put(method, new ConcurrentHashMap<>());
         }
         handlers.get(method).put(path, handler);
     }
