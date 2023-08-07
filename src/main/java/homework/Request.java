@@ -2,42 +2,51 @@ package homework;
 
 import org.apache.http.NameValuePair;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class Request {
     private final String method;
-    private final String path;
-    private Map<String, List<String>> params;
+    private final String path;//только путь без запросов
+    private final Map<String, List<String>> paramsQueryList = new HashMap<>();
+    private final List<NameValuePair> paramsQuery;
+    private final List<NameValuePair> paramsBody;
 
-    public Request (String method, String path, List<NameValuePair> params){
+    public Request(String method, String path, List<NameValuePair> paramsQuery, List<NameValuePair> paramsBody) {
         this.method = method;
         this.path = path;
-        addParams(params);
+        this.paramsQuery = paramsQuery;
+        this.paramsBody = paramsBody;
+        setQueryParams();
     }
 
-    private void addParams(List<NameValuePair> params) {
-        for (NameValuePair nvp : params){
-            List<String> list = this.params.computeIfAbsent(nvp.getName(),k-> new ArrayList<>());
-            list.add(nvp.getValue());
-        }
-    }
-
-    public String getMethod(){
+    public String getMethod() {
         return method;
     }
 
-    public String getPath(){
+    public String getPath() {
         return path;
     }
 
-    public List<String> getQueryParam(String name) {
-        return new ArrayList<>(params.getOrDefault(name, new ArrayList<>()));
+    private void setQueryParams() {
+        var query = method.equals("GET") ? paramsQuery : paramsBody;
+        for (NameValuePair nvp : query) {
+            if (!paramsQueryList.containsKey(nvp.getName())) {
+                paramsQueryList.put(nvp.getName(), new ArrayList<>());
+            }
+            paramsQueryList.get(nvp.getName()).add(nvp.getValue());
+        }
+
     }
 
     public Map<String, List<String>> getQueryParams() {
-        return new HashMap<>(params);
+        return paramsQueryList;
+    }
+
+    public String printQueryParams() {
+        return Arrays.deepToString(getQueryParams().entrySet().toArray());
+    }
+
+    public String getQueryParam(String name) {
+        return getQueryParams().get(name).toString();
     }
 }
